@@ -1,0 +1,131 @@
+#!/usr/bin/python
+
+import sys
+import os
+import signal
+import shlex
+
+from multiprocessing import Pool, cpu_count
+from subprocess import Popen, PIPE
+
+verbose = 1
+nprocs = cpu_count()
+key = None
+split_line = True
+shell = True
+
+def usage():
+	sys.stderr.write(
+"""Usage: %s [options] <cmd> [arg1] [arg2] ...
+
+[options]:
+  -k <key>        Set the text to substitute the input line. If none is given,
+                  just append the text to the end of the command [%s].
+  -n <num-procs>  Set the number of parallel processes to run [%s].
+  -s <bool>       Split the line into separate args [%s].
+  -S <bool>       Run the command through the default shell [%s].
+  -v <0|1|2>      Verbose level [%s].
+  -h              Display this message.
+""" % (sys.argv[0], key, nprocs, split_line, shell, verbose))
+	sys.exit()
+
+if len(sys.argv) < 2:
+	usage()
+
+lastopt = 0
+i = 1
+while i < len(sys.argv):
+	if sys.argv[i][0] == '-':
+		if i < len(sys.argv)-1 and sys.argv[i] == "-k":
+			key = sys.argv[i+1]
+			lastopt = i+1
+			i += 1
+			
+		elif i < len(sys.argv)-1 and sys.argv[i] == '-n':
+			nprocs = int(sys.argv[i+1])
+			lastopt = i+1
+			i += 1
+			
+		elif i < len(sys.argv)-1 and sys.argv[i] == '-v':
+			verbose = int(sys.argv[i+1])
+			lastopt = i+1
+			i += 1 
+
+		elif i < len(sys.argv)-1 and sys.argv[i] == '-s':
+			split_line = bool(sys.argv[i+1])
+			lastopt = i+1
+			i += 1 
+
+		elif i < len(sys.argv)-1 and sys.argv[i] == '-S':
+			shell = bool(sys.argv[i+1])
+			lastopt = i+1
+			i += 1 
+			
+		else:
+			usage()
+			
+		i += 1
+	else:
+		break
+
+if verbose >= 2:
+	sys.stderr.write('key=%s\n' % key)
+	sys.stderr.write('nprocs=%s\n' % nprocs)
+	sys.stderr.write('split=%s\n' % split_line)
+	sys.stderr.write('shell=%s\n' % shell)
+		
+if lastopt >= len(sys.argv)-1:
+	sys.stderr.write("No command given, exiting.\n");
+	sys.exit()
+		
+cmd = [sys.argv[i] for i in range(lastopt+1, len(sys.argv))]
+
+class ReplaceInCommandStream:
+	def __init__(self, stream, cmd, key):
+		self.stream = stream
+		self.cmd = cmd[:]
+		self.key = key
+		
+	def __iter__(self):
+		return self
+		
+	def next(self):
+		line = str(self.stream.readline())
+		if line == "":
+			raise StopIteration
+			
+		line = line.rstrip()
+
+		cmd2 = self.cmd[:]
+		
+		if self.key == None:
+			if split_line:
+				cmd2.extend(shlex.split(line))
+			else:
+				cmd2.append(line)	
+		else:
+			for i in range(len(self.cmd)):
+				cmd2[i] = cmd2[i].replace(self.key, line)
+
+		return cmd2
+
+def run_cmd(cmd):
+	try:
+		if verbose >= 1:
+			sys.stderr.write(" ".join(cmd)+'\n')
+		if shell:
+			p = Popen(" ".join(cmd), shell=True)
+		else:
+			p = Popen(cmd)
+		signal.signal(signal.SIGINT, lambda : p.terminate())
+		p.wait()
+	except KeyboardInterrupt:
+		pass
+
+if __name__ == '__main__':
+	try:
+		pool = Pool(processes=nprocs)
+		r = pool.map_async(run_cmd, ReplaceInCommandStream(sys.stdin, cmd, key))
+		r.get(timeout = None)
+	except KeyboardInterrupt:
+		pass
