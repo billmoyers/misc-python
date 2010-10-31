@@ -1,4 +1,5 @@
 import copy
+import math
 
 class Function:
 	PREFIX = 0
@@ -7,6 +8,8 @@ class Function:
 	cardinality = 0	
 	commutative = False
 	associative = False
+	
+	defaultSimplify = None
 	
 	def __init__(self, name, *children, **attr):
 		self.name = name
@@ -107,11 +110,17 @@ class Function:
 	def __rdiv__(self, other):
 		return other * (self ** Constant(-1))
 		
-	def expand(self):
-		return self
-		
-	def reduce(self):
-		return Add(*[f.reduce() for f in self.children])
+	def simplify(self, **methods):
+		#print 'simplify(%s)' % self
+	
+		if methods.has_key(self.__class__.__name__):
+			return methods[self.__class__.__name__](self, **methods)
+		elif self.__class__.defaultSimplify != None:
+			return self.__class__.defaultSimplify(self, **methods)
+		else:
+			r = copy.copy(self)
+			r.children = [c.simplify(**methods) for c in r.children]
+			return r
 
 	def evaluate(self, vals):
 		for k, v in vals.items():
@@ -155,15 +164,17 @@ class Add (Function):
 	commutative = True
 	associative = True
 	
+	defaultSimplify = lambda f, **methods : f._reduce(**methods)
+	
 	def __init__(self, a, b):
 		Function.__init__(self, '+', a, b, infix = True)
 		
-	def expand(self):
+	def _reduce(self, **methods):
 		n = 0
 		others = []
 		
 		for f in self.children:
-			f = f.expand()
+			f = f.simplify(**methods)
 			
 			if isinstance(f, Constant):
 				n += f.getValue()
@@ -181,10 +192,12 @@ class Mul (Function):
 	commutative = True
 	associative = True
 	
+	defaultSimplify = lambda f, **methods : f._distributeIn(**methods)
+	
 	def __init__(self, a, b):
 		Function.__init__(self, '*', a, b, infix = True)
 
-	def expand(self):
+	def _distributeIn(self, **methods):
 		dargs = []
 		add = None
 		mult = None
@@ -193,8 +206,6 @@ class Mul (Function):
 		# Reduce to addition, multiplication, and a constant
 		
 		for f in self.children:
-			f = f.expand()
-			
 			if f == Constant(0):
 				return Constant(0)
 			
@@ -227,8 +238,14 @@ class Mul (Function):
 		elif mult != None and num != None: mult *= num
 		
 		if add == None and mult == None: return Constant(1)
-		if add == None: return mult
-		if mult == None: return add.expand()
+		elif add == None:
+			if isinstance(mult, Function):
+				r = copy.copy(mult)
+				r.children = [c.simplify(**methods) for c in r.children]
+				return r
+			else:
+				return Constant(mult)
+		elif mult == None: return add.simplify(**methods)
 		
 		# We have both components, distribute the multiplication into addition.
 		
@@ -236,30 +253,25 @@ class Mul (Function):
 			addends = []
 			
 			for a in add.children:
-				addends.append((a*mult).expand())
+				addends.append((a*mult))
 			
-			return Add(*addends).expand()
+			return Add(*addends).simplify(**methods)
 			
 		else:
-			return add*mult
+			return add.simplify(**methods)*mult.simplify(**methods)
 
 class Pow (Function):
 	cardinality = 2
+	
+	defaultSimplify = lambda f, **methods : f._reduce(**methods)
+	
 	def __init__(self, a, b):
 		Function.__init__(self, '^', a, b, infix = True)
-		
-	def __getattr__(self, attr):
-		if attr == 'base': return self.children[0]
-		elif attr == 'exp': return self.children[1]
-		else: return getattr(self, attr)
+		self.base = a
+		self.exp = b
 
-	def __setattr__(self, attr, value):
-		if attr == 'base': self.children[0] = value
-		elif attr == 'exp': self.children[1] = value
-		else: return setattr(self, attr, value)
-
-	def expand(self):
-		f = self.base.expand() ** self.exp.expand()
+	def _reduce(self, **methods):
+		f = self.base.simplify(**methods) ** self.exp.simplify(**methods)
 		
 		if isinstance(f.base, Constant) and isinstance(f.exp, Constant):
 			return Constant(f.base.getValue() ** f.exp.getValue())
@@ -267,35 +279,32 @@ class Pow (Function):
 		elif isinstance(f.exp, Constant):
 			pass
 			#Exponentiation.java line 75
-	
-	def reduce(self):
-		pass
+			
+		return f
 		
 class Diff (Function):
 	cardinality = 2
 
+	defaultSimplify = lambda f, **methods : Diff._diff(f.function, f.variable, **methods)
+
 	def __init__(self, a, b):
 		Function.__init__(self, 'diff', a, b, infix = True)
+		self.function = a
+		self.variable = b
 
 	def __repr__(self):
 		return 'd(%s)/d%s' % (self.children[0], self.children[1])
 
-	def expand(self):
-		return Diff._diff(self.children[0], self.children[1]).expand()
-	
-	def reduce(self):
-		return Diff._diff(self.children[0], self.children[1]).reduce()
-	
 	@staticmethod
-	def _diff(f, x):
+	def _diff(f, x, **methods):
 		if not x in f:
 			return Constant(0)
 			
 		if isinstance(f, Add):
-			return Add(*[Diff._diff(f, x) for f in f.children])
+			return Add(*[Diff._diff(f, x) for f in f.children]).simplify(**methods)
 			
 		elif isinstance(f, Mul):
-			return f[0]*Diff._diff(f[1], x) + f[1]*Diff._diff(f[0], x)
+			return (f[0]*Diff._diff(f[1], x) + f[1]*Diff._diff(f[0], x)).simplify(**methods)
 
 		elif isinstance(f, Variable):
 			if f == x: return Constant(1)
@@ -304,6 +313,18 @@ class Diff (Function):
 		elif isinstance(f, Constant):
 			return Constant(0)
 
-		else:
-			raise Exception, 'Not differentiable.'
+		elif isinstance(f, Pow):
+			b = (x in f.base)
+			e = (x in f.exp)
+			
+			if b and e:
+				pass
+			
+			elif b:
+				return (f.exp*(f.base**(f.exp-1))*Diff._diff(f.base, x)).simplify(**methods)
+			
+			elif e:
+				return ((f.base**f.exp) * Log(math.e, f.base) * Diff._diff(f.exp, x)).simplify(**methods)
+			
+		raise Exception, '\'%s\' is not differentiable.' % f.__class__
 			

@@ -69,4 +69,6 @@ x = Variable('x')
 y = Variable('y')
 
 f = (3*(x**2+y))
-print f, Diff(f, x).expand()
+dfdx = Diff(f, x)
+print 'f=%s' % f
+print 'df/dx=%s' % dfdx.simplify()
