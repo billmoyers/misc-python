@@ -13,7 +13,7 @@ class Function:
 	
 	def __init__(self, name, *children, **attr):
 		self.name = name
-		self.children = children[:]#[copy.deepcopy(c) for c in children]
+		self.children = list(children[:])#[copy.deepcopy(c) for c in children]
 		self.fix = Function.PREFIX
 		
 		if attr.has_key('infix') and attr['infix']:
@@ -192,12 +192,33 @@ class Mul (Function):
 	commutative = True
 	associative = True
 	
-	defaultSimplify = lambda f, **methods : f._distributeIn(**methods)
+	defaultSimplify = lambda f, **methods : f._flatten(**methods)._reduce(**methods)
 	
 	def __init__(self, a, b):
 		Function.__init__(self, '*', a, b, infix = True)
 
-	def _distributeIn(self, **methods):
+	def _flatten(self, **methods):
+		mults = self.children[:]
+		rm = None
+		
+		while rm == None or len(rm) > 0:
+			am = []
+			rm = []
+				
+			for m in mults:
+				if isinstance(m, Mul):
+					am.extend(m.children)
+					rm.append(m)
+			
+			mults = filter(lambda m : m not in rm, mults)
+			mults.extend(am)
+			
+		r = copy.copy(self)
+		r.children = mults
+		return r
+
+	def _reduce(self, **methods):
+		#print 'Mul._reduce'
 		dargs = []
 		add = None
 		mult = None
@@ -231,6 +252,8 @@ class Mul (Function):
 					mult = f
 				else:
 					mult *= f
+		
+		#print '  %s %s %s' % (num, add, mult)
 		
 		if num == 1: num = None
 		
@@ -277,7 +300,12 @@ class Pow (Function):
 			return Constant(f.base.getValue() ** f.exp.getValue())
 			
 		elif isinstance(f.exp, Constant):
-			pass
+			v = f.exp.getValue()
+			if v == 0:
+				return Constant(0)
+			elif v == 1:
+				return f.base
+				
 			#Exponentiation.java line 75
 			
 		return f
