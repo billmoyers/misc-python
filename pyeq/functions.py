@@ -310,6 +310,32 @@ class Pow (Function):
 			
 		return f
 		
+class Log (Function):
+	cardinality = 2
+	
+	defaultSimplify = lambda f, **methods: f._reduce(**methods)
+
+	def __init__(self, a, b):
+		Function.__init__(self, 'log', a, b, prefix = True)
+		self.base = a
+		self.arg = b
+		
+	@staticmethod
+	def Natural(b):
+		return Log(Constant(math.e), b)
+		
+	def _reduce(self, **methods):
+		if isinstance(self.base, Constant) and isinstance(self.arg, Constant):
+			return Constant(math.log(self.base.getValue(), self.arg.getValue()))
+		else:
+			return self
+
+	def __repr__(self):
+		if self.base == Constant(math.e):
+			return 'ln(%s)' % self.arg
+		else:
+			return '%s(%s)' % (self.name, ','.join([str(c) for c in self.children]))		
+	
 class Diff (Function):
 	cardinality = 2
 
@@ -344,15 +370,23 @@ class Diff (Function):
 		elif isinstance(f, Pow):
 			b = (x in f.base)
 			e = (x in f.exp)
-			
+
 			if b and e:
-				pass
+				return (f * Diff._diff(f.exp, x) * Log.Natural(f) + \
+					(f.base ** (f.exp-1)) * f.exp * Diff._diff(f.base, x)).simplify(**methods)
 			
 			elif b:
 				return (f.exp*(f.base**(f.exp-1))*Diff._diff(f.base, x)).simplify(**methods)
 			
 			elif e:
 				return ((f.base**f.exp) * Log(math.e, f.base) * Diff._diff(f.exp, x)).simplify(**methods)
+
+		elif isinstance(f, Log):
+			if x in f.base:
+				return Diff._diff(Log.Natural(f.arg) / Log.Natural(f.base), x).simplify(**methods)
+				
+			else:
+				return (Diff._diff(f.arg, x) / (f.arg*Log.Natural(f.base))).simplify(**methods)
 			
 		raise Exception, '\'%s\' is not differentiable.' % f.__class__
 			

@@ -68,7 +68,9 @@ class FunctionGenerator:
 x = Variable('x')
 y = Variable('y')
 
-f = (3*(x**2+y))
+f = (3*(x**6+y))
 dfdx = Diff(f, x)
 print 'f=%s' % f
 print 'df/dx=%s' % dfdx.simplify()
+
+print Diff(Log.Natural(x), x).simplify()
