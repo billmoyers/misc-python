@@ -264,8 +264,11 @@ class Mul (Function):
 		elif add == None:
 			if isinstance(mult, Function):
 				r = copy.copy(mult)
-				r.children = [c.simplify(**methods) for c in r.children]
-				return r
+				r.children = [c for c in [c.simplify(**methods) for c in r.children] if not isinstance(c, Constant) or c.getValue() != 1]
+				if len(r.children) == 1:
+					return r.children[0]
+				else:
+					return r
 			else:
 				return Constant(mult)
 		elif mult == None: return add.simplify(**methods)
