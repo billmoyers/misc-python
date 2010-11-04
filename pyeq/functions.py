@@ -13,11 +13,17 @@ class Function:
 	
 	def __init__(self, name, *children, **attr):
 		self.name = name
-		self.children = list(children[:])#[copy.deepcopy(c) for c in children]
+		self.children = [self._wrap(c) for c in children]
 		self.fix = Function.PREFIX
 		
 		if attr.has_key('infix') and attr['infix']:
 			self.fix = Function.INFIX
+
+	def _wrap(self, f):
+		if not isinstance(f, Function):
+			return Constant(float(f))
+		else:
+			return f
 	
 	def __repr__(self):
 		if len(self.children) == 0:
@@ -338,58 +344,55 @@ class Log (Function):
 			return 'ln(%s)' % self.arg
 		else:
 			return '%s(%s)' % (self.name, ','.join([str(c) for c in self.children]))		
+
+class Cos (Function):
+	cardinality = 1
+	defaultSimplify = lambda f, **methods : f._reduce(**methods)
 	
-class Diff (Function):
-	cardinality = 2
+	def __init__(self, f):
+		Function.__init__(self, 'cos', f, prefix = True)
 
-	defaultSimplify = lambda f, **methods : Diff._diff(f.function, f.variable, **methods)
+	def _reduce(self, **methods):
+		if isinstance(self.children[0], Constant):
+			return Constant(math.cos(self.children[0].getValue()))
+		else:
+			return self
 
-	def __init__(self, a, b):
-		Function.__init__(self, 'diff', a, b, infix = True)
-		self.function = a
-		self.variable = b
+class Sin (Function):
+	cardinality = 1
+	defaultSimplify = lambda f, **methods : f._reduce(**methods)
+	
+	def __init__(self, f):
+		Function.__init__(self, 'sin', f, prefix = True)
 
-	def __repr__(self):
-		return 'd(%s)/d%s' % (self.children[0], self.children[1])
+	def _reduce(self, **methods):
+		if isinstance(self.children[0], Constant):
+			return Constant(math.sin(self.children[0].getValue()))
+		else:
+			return self
 
-	@staticmethod
-	def _diff(f, x, **methods):
-		if not x in f:
-			return Constant(0)
-			
-		if isinstance(f, Add):
-			return Add(*[Diff._diff(f, x) for f in f.children]).simplify(**methods)
-			
-		elif isinstance(f, Mul):
-			return (f[0]*Diff._diff(f[1], x) + f[1]*Diff._diff(f[0], x)).simplify(**methods)
+class Tan (Function):
+	cardinality = 1
+	defaultSimplify = lambda f, **methods : f._reduce(**methods)
+	
+	def __init__(self, f):
+		Function.__init__(self, 'tan', f, prefix = True)
 
-		elif isinstance(f, Variable):
-			if f == x: return Constant(1)
-			else: return Constant(0)
+	def _reduce(self, **methods):
+		if isinstance(self.children[0], Constant):
+			return Constant(math.tan(self.children[0].getValue()))
+		else:
+			return self
 
-		elif isinstance(f, Constant):
-			return Constant(0)
+class Sec (Function):
+	cardinality = 1
+	defaultSimplify = lambda f, **methods : f._reduce(**methods)
+	
+	def __init__(self, f):
+		Function.__init__(self, 'sec', f, prefix = True)
 
-		elif isinstance(f, Pow):
-			b = (x in f.base)
-			e = (x in f.exp)
-
-			if b and e:
-				return (f * Diff._diff(f.exp, x) * Log.Natural(f) + \
-					(f.base ** (f.exp-1)) * f.exp * Diff._diff(f.base, x)).simplify(**methods)
-			
-			elif b:
-				return (f.exp*(f.base**(f.exp-1))*Diff._diff(f.base, x)).simplify(**methods)
-			
-			elif e:
-				return ((f.base**f.exp) * Log(math.e, f.base) * Diff._diff(f.exp, x)).simplify(**methods)
-
-		elif isinstance(f, Log):
-			if x in f.base:
-				return Diff._diff(Log.Natural(f.arg) / Log.Natural(f.base), x).simplify(**methods)
-				
-			else:
-				return (Diff._diff(f.arg, x) / (f.arg*Log.Natural(f.base))).simplify(**methods)
-			
-		raise Exception, '\'%s\' is not differentiable.' % f.__class__
-			
+	def _reduce(self, **methods):
+		if isinstance(self.children[0], Constant):
+			return Constant(math.sec(self.children[0].getValue()))
+		else:
+			return self
